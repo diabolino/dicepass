@@ -1,0 +1,14 @@
+{
+  "name": "dicepass",
+  "version": "1.0.0",
+  "description": "Générateur de passphrases Diceware FR — Web UI + API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node scripts/fetch-wordlist.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "license": "MIT"
+}
