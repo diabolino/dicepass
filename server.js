@@ -62,7 +62,59 @@ function crackTime(bits) {
   return `${(s / (y * 1e9)).toFixed(0)} milliards d'années`;
 }
 
-// ── API endpoint ───────────────────────────────────────────────────────
+// ── Random password generation (server-side for API) ──────────────────
+function generateRandom(opts = {}) {
+  const {
+    length = 16,
+    upper = true,
+    lower = true,
+    digits = true,
+    symbols = false,
+  } = opts;
+
+  const chars = [
+    lower   ? "abcdefghijklmnopqrstuvwxyz" : "",
+    upper   ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" : "",
+    digits  ? "0123456789" : "",
+    symbols ? "!@#$%&*?-_." : "",
+  ].join("");
+
+  if (!chars) return null;
+
+  let pass = "";
+  for (let i = 0; i < length; i++) pass += chars[crypto.randomInt(chars.length)];
+  const entropy = +(Math.log2(chars.length) * length).toFixed(1);
+  return { password: pass, entropy_bits: entropy, charset_size: chars.length };
+}
+
+// ── API endpoint — random password ────────────────────────────────────
+app.get(`${BASE}/api/random`, (req, res) => {
+  const q = req.query;
+  const length  = Math.min(Math.max(parseInt(q.length) || 16, 8), 64);
+  const upper   = q.upper   !== "0";
+  const lower   = q.lower   !== "0";
+  const digits  = q.digits  !== "0";
+  const symbols = q.symbols === "1";
+  const count   = Math.min(Math.max(parseInt(q.count) || 1, 1), 20);
+
+  const results = Array.from({ length: count }, () =>
+    generateRandom({ length, upper, lower, digits, symbols })
+  );
+  if (!results[0]) return res.status(400).json({ error: "Au moins un jeu de caractères requis." });
+
+  const entropy = results[0].entropy_bits;
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    passwords: results.map((r) => r.password),
+    length,
+    charset_size: results[0].charset_size,
+    entropy_bits: entropy,
+    crack_time: crackTime(entropy),
+  });
+});
+
+// ── API endpoint — passphrase ──────────────────────────────────────────
 app.get(`${BASE}/api`, (req, res) => {
   const q = req.query;
   const words = Math.min(Math.max(parseInt(q.words) || 6, 3), 12);
