@@ -101,6 +101,21 @@ function crackTime(bits) {
   return `${(s / (y * 1e9)).toFixed(0)} milliards d'années`;
 }
 
+// ── Generate random password (client-side) ──────────────────────────
+function generateRandom({ length, upper, lower, digits, symbols }) {
+  const chars = [
+    lower   ? 'abcdefghijklmnopqrstuvwxyz' : '',
+    upper   ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' : '',
+    digits  ? '0123456789' : '',
+    symbols ? '!@#$%&*?-_.' : '',
+  ].join('');
+  if (!chars) return null;
+  let pass = '';
+  for (let i = 0; i < length; i++) pass += chars[cryptoRandomInt(chars.length)];
+  const entropy = +(Math.log2(chars.length) * length).toFixed(1);
+  return { passphrase: pass, parts: null, extra: '', entropy, crackTime: crackTime(entropy), length: pass.length };
+}
+
 // ── Generate passphrase (client-side) ───────────────────────────────
 function generatePassphrase(wordlist, { words, separator, casing, addDigit, addSymbol }) {
   if (!wordlist.length) return null;
@@ -254,12 +269,22 @@ function App() {
       .catch(e => { console.error(e); setLoading(false); });
   }, []);
 
-  // Options
+  // Mode
+  const [mode, setMode] = useState('diceware');
+
+  // Diceware options
   const [words, setWords] = useState(6);
   const [separator, setSeparator] = useState('-');
   const [casing, setCasing] = useState('lower');
   const [addDigit, setAddDigit] = useState(false);
   const [addSymbol, setAddSymbol] = useState(false);
+
+  // Random options
+  const [rndLength, setRndLength] = useState(16);
+  const [rndUpper,   setRndUpper]   = useState(true);
+  const [rndLower,   setRndLower]   = useState(true);
+  const [rndDigits,  setRndDigits]  = useState(true);
+  const [rndSymbols, setRndSymbols] = useState(false);
 
   // Result
   const [result, setResult] = useState(null);
@@ -268,11 +293,15 @@ function App() {
 
   // Generate
   const generate = useCallback(() => {
-    if (!wordlist.length) return;
-    const r = generatePassphrase(wordlist, { words, separator, casing, addDigit, addSymbol });
-    setResult(r);
-    setAnimKey(k => k + 1);
-  }, [wordlist, words, separator, casing, addDigit, addSymbol]);
+    let r;
+    if (mode === 'diceware') {
+      if (!wordlist.length) return;
+      r = generatePassphrase(wordlist, { words, separator, casing, addDigit, addSymbol });
+    } else {
+      r = generateRandom({ length: rndLength, upper: rndUpper, lower: rndLower, digits: rndDigits, symbols: rndSymbols });
+    }
+    if (r) { setResult(r); setAnimKey(k => k + 1); }
+  }, [mode, wordlist, words, separator, casing, addDigit, addSymbol, rndLength, rndUpper, rndLower, rndDigits, rndSymbols]);
 
   useEffect(() => { generate(); }, [generate]);
 
@@ -314,7 +343,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-base dark:bg-base-dark noise font-sans">
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-8 sm:py-12">
+      <div className="relative z-10 max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-12 py-8 sm:py-12">
 
         {/* Header */}
         <header className="flex items-center justify-between mb-8 sm:mb-10">
@@ -346,6 +375,20 @@ function App() {
             <div className="bg-surface dark:bg-surface-dark border border-brd dark:border-brd-dark
               rounded-2xl p-5 sm:p-7 shadow-sm">
 
+              {/* Mode switcher */}
+              <div className="flex rounded-xl bg-base dark:bg-base-dark border border-brd dark:border-brd-dark p-1 mb-5">
+                {[['diceware', 'Diceware'], ['random', 'Aléatoire']].map(([m, label]) => (
+                  <button key={m} onClick={() => setMode(m)}
+                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                      mode === m
+                        ? 'bg-accent text-white shadow-sm'
+                        : 'text-txt2 dark:text-txt2-dark hover:text-txt dark:hover:text-txt-dark'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {/* Output */}
               <div className={`relative rounded-xl p-5 sm:p-6 min-h-[100px] flex items-center justify-center text-center
                 mb-5 transition-all duration-300
@@ -355,15 +398,19 @@ function App() {
                 {result && (
                   <div key={animKey} className="animate-in font-mono text-lg sm:text-xl lg:text-2xl font-semibold
                     leading-relaxed break-all select-all text-txt dark:text-txt-dark">
-                    {result.parts.map((word, i) => (
-                      <React.Fragment key={i}>
-                        {i > 0 && separator && (
-                          <span className="text-accent">{separator}</span>
-                        )}
-                        <span>{word}</span>
-                      </React.Fragment>
-                    ))}
-                    {result.extra && <span className="text-yellow-500">{result.extra}</span>}
+                    {mode === 'diceware' && result.parts ? (
+                      <>
+                        {result.parts.map((word, i) => (
+                          <React.Fragment key={i}>
+                            {i > 0 && separator && <span className="text-accent">{separator}</span>}
+                            <span>{word}</span>
+                          </React.Fragment>
+                        ))}
+                        {result.extra && <span className="text-yellow-500">{result.extra}</span>}
+                      </>
+                    ) : (
+                      result.passphrase
+                    )}
                   </div>
                 )}
               </div>
@@ -442,88 +489,199 @@ function App() {
                 <div className="flex-1 h-px bg-brd dark:bg-brd-dark" />
               </div>
 
-              <div className="space-y-5">
-                {/* Word count slider */}
-                <div>
-                  <div className="flex items-baseline justify-between mb-2">
-                    <label className="text-sm font-medium text-txt2 dark:text-txt2-dark">Nombre de mots</label>
-                    <span className="font-mono font-bold text-lg text-accent">{words}</span>
-                  </div>
-                  <input type="range" min="3" max="12" value={words}
-                    onChange={e => setWords(+e.target.value)}
-                    className="w-full bg-subtle dark:bg-subtle-dark cursor-pointer" />
-                  <div className="flex justify-between mt-1 text-[0.65rem] text-txt2 dark:text-txt2-dark font-mono">
-                    <span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span>
-                  </div>
-                </div>
-
-                {/* Separator + Casing */}
-                <div className="grid grid-cols-2 gap-4">
+              {mode === 'diceware' ? (
+                <div className="space-y-5">
+                  {/* Word count slider */}
                   <div>
-                    <label className="block text-sm font-medium text-txt2 dark:text-txt2-dark mb-1.5">Séparateur</label>
-                    <select value={separator} onChange={e => setSeparator(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-lg appearance-none cursor-pointer
-                        bg-base dark:bg-base-dark text-txt dark:text-txt-dark
-                        border border-brd dark:border-brd-dark
-                        font-mono text-sm outline-none
-                        focus:border-accent transition-colors">
-                      <option value="-">Tiret ( - )</option>
-                      <option value=".">Point ( . )</option>
-                      <option value=" ">Espace</option>
-                      <option value="_">Underscore ( _ )</option>
-                      <option value="">Aucun</option>
-                    </select>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label className="text-sm font-medium text-txt2 dark:text-txt2-dark">Nombre de mots</label>
+                      <span className="font-mono font-bold text-lg text-accent">{words}</span>
+                    </div>
+                    <input type="range" min="3" max="12" value={words}
+                      onChange={e => setWords(+e.target.value)}
+                      className="w-full bg-subtle dark:bg-subtle-dark cursor-pointer" />
+                    <div className="flex justify-between mt-1 text-[0.65rem] text-txt2 dark:text-txt2-dark font-mono">
+                      <span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-txt2 dark:text-txt2-dark mb-1.5">Casse</label>
-                    <select value={casing} onChange={e => setCasing(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-lg appearance-none cursor-pointer
-                        bg-base dark:bg-base-dark text-txt dark:text-txt-dark
-                        border border-brd dark:border-brd-dark
-                        font-mono text-sm outline-none
-                        focus:border-accent transition-colors">
-                      <option value="lower">minuscules</option>
-                      <option value="capitalize">Première Majuscule</option>
-                      <option value="upper">MAJUSCULES</option>
-                    </select>
-                  </div>
-                </div>
 
-                {/* Checkboxes */}
-                <div className="flex flex-wrap gap-x-6 gap-y-3">
-                  {[
-                    [addDigit, setAddDigit, 'Ajouter un chiffre'],
-                    [addSymbol, setAddSymbol, 'Ajouter un symbole'],
-                  ].map(([val, setter, label]) => (
-                    <label key={label} className="flex items-center gap-2.5 cursor-pointer select-none group">
-                      <input type="checkbox" checked={val} onChange={e => setter(e.target.checked)}
-                        className="sr-only" />
-                      <div className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all
-                        ${val
-                          ? 'bg-accent border-accent'
-                          : 'border-brd dark:border-brd-dark group-hover:border-accent/50'}`}>
-                        {val && (
-                          <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"
-                            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="2 6 5 9 10 3"/>
-                          </svg>
-                        )}
-                      </div>
-                      <span className="text-sm text-txt2 dark:text-txt2-dark group-hover:text-txt dark:group-hover:text-txt-dark transition-colors">
-                        {label}
-                      </span>
-                    </label>
-                  ))}
+                  {/* Separator + Casing */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-txt2 dark:text-txt2-dark mb-1.5">Séparateur</label>
+                      <select value={separator} onChange={e => setSeparator(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg appearance-none cursor-pointer
+                          bg-base dark:bg-base-dark text-txt dark:text-txt-dark
+                          border border-brd dark:border-brd-dark
+                          font-mono text-sm outline-none
+                          focus:border-accent transition-colors">
+                        <option value="-">Tiret ( - )</option>
+                        <option value=".">Point ( . )</option>
+                        <option value=" ">Espace</option>
+                        <option value="_">Underscore ( _ )</option>
+                        <option value="">Aucun</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-txt2 dark:text-txt2-dark mb-1.5">Casse</label>
+                      <select value={casing} onChange={e => setCasing(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg appearance-none cursor-pointer
+                          bg-base dark:bg-base-dark text-txt dark:text-txt-dark
+                          border border-brd dark:border-brd-dark
+                          font-mono text-sm outline-none
+                          focus:border-accent transition-colors">
+                        <option value="lower">minuscules</option>
+                        <option value="capitalize">Première Majuscule</option>
+                        <option value="upper">MAJUSCULES</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Checkboxes */}
+                  <div className="flex flex-wrap gap-x-6 gap-y-3">
+                    {[
+                      [addDigit, setAddDigit, 'Ajouter un chiffre'],
+                      [addSymbol, setAddSymbol, 'Ajouter un symbole'],
+                    ].map(([val, setter, label]) => (
+                      <label key={label} className="flex items-center gap-2.5 cursor-pointer select-none group">
+                        <input type="checkbox" checked={val} onChange={e => setter(e.target.checked)}
+                          className="sr-only" />
+                        <div className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all
+                          ${val
+                            ? 'bg-accent border-accent'
+                            : 'border-brd dark:border-brd-dark group-hover:border-accent/50'}`}>
+                          {val && (
+                            <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"
+                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="2 6 5 9 10 3"/>
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm text-txt2 dark:text-txt2-dark group-hover:text-txt dark:group-hover:text-txt-dark transition-colors">
+                          {label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-5">
+                  {/* Length slider */}
+                  <div>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label className="text-sm font-medium text-txt2 dark:text-txt2-dark">Longueur</label>
+                      <span className="font-mono font-bold text-lg text-accent">{rndLength}</span>
+                    </div>
+                    <input type="range" min="8" max="64" value={rndLength}
+                      onChange={e => setRndLength(+e.target.value)}
+                      className="w-full bg-subtle dark:bg-subtle-dark cursor-pointer" />
+                    <div className="flex justify-between mt-1 text-[0.65rem] text-txt2 dark:text-txt2-dark font-mono">
+                      <span>8</span><span>16</span><span>24</span><span>32</span><span>40</span><span>48</span><span>56</span><span>64</span>
+                    </div>
+                  </div>
+
+                  {/* Character sets */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      [rndLower,   setRndLower,   'Minuscules (a-z)'],
+                      [rndUpper,   setRndUpper,   'Majuscules (A-Z)'],
+                      [rndDigits,  setRndDigits,  'Chiffres (0-9)'],
+                      [rndSymbols, setRndSymbols, 'Symboles (!@#…)'],
+                    ].map(([val, setter, label]) => (
+                      <label key={label} className="flex items-center gap-2.5 cursor-pointer select-none group">
+                        <input type="checkbox" checked={val} onChange={e => setter(e.target.checked)}
+                          className="sr-only" />
+                        <div className={`w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all
+                          ${val
+                            ? 'bg-accent border-accent'
+                            : 'border-brd dark:border-brd-dark group-hover:border-accent/50'}`}>
+                          {val && (
+                            <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"
+                              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="2 6 5 9 10 3"/>
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm text-txt2 dark:text-txt2-dark group-hover:text-txt dark:group-hover:text-txt-dark transition-colors">
+                          {label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <p className="mt-5 text-[0.7rem] text-txt2 dark:text-txt2-dark text-center">
                 Appuyez sur <kbd className="font-mono bg-subtle dark:bg-subtle-dark px-1.5 py-0.5 rounded text-[0.65rem]">Espace</kbd> pour régénérer
               </p>
             </div>
+
+            {/* FAQ — mode-dependent */}
+            <div className="space-y-2">
+              {mode === 'diceware' ? (<>
+                <FaqItem q="Qu'est-ce que la méthode Diceware ?">
+                  Inventée par Arnold Reinhold en 1995, la méthode Diceware consiste à assembler des mots choisis
+                  aléatoirement dans une liste de 7776 mots (6⁵). L'aléa vient du navigateur via{' '}
+                  <code className="font-mono text-xs bg-subtle dark:bg-subtle-dark px-1 rounded">crypto.getRandomValues()</code>,
+                  un CSPRNG. Aucune donnée ne quitte le navigateur.
+                </FaqItem>
+                <FaqItem q="Combien de mots faut-il ?">
+                  L'EFF et l'ANSSI recommandent au moins 5 mots (~65 bits) pour un usage courant.
+                  6 mots (~77 bits) pour les comptes sensibles. 7+ mots pour un master password
+                  ou du chiffrement de disque.
+                </FaqItem>
+                <FaqItem q="Pourquoi c'est plus sûr qu'un mot de passe classique ?">
+                  Un mot de passe de 8 caractères offre ~40–50 bits et est difficile à retenir.
+                  5 mots parmi 7776 donnent ~65 bits tout en restant mémorisables grâce à
+                  l'image mentale formée par les mots.
+                </FaqItem>
+                <FaqItem q="Comment le temps de crack est-il estimé ?">
+                  On suppose 10¹² essais/seconde — un ordre de grandeur réaliste pour du cracking
+                  GPU avec hashcat. Le temps affiché est la moyenne (50 % des combinaisons testées).
+                </FaqItem>
+                <FaqItem q="Mes données sont-elles envoyées quelque part ?">
+                  Non. La génération est 100 % locale. La wordlist est chargée une seule fois,
+                  puis tout se passe dans le navigateur. L'API{' '}
+                  <code className="font-mono text-xs bg-subtle dark:bg-subtle-dark px-1 rounded">/dicepass/api</code>{' '}
+                  est distincte et non utilisée par l'interface.
+                </FaqItem>
+                <FaqItem q="Qu'est-ce que l'entropie ?">
+                  L'entropie mesure l'imprévisibilité d'un mot de passe en bits. Chaque bit double
+                  le nombre de combinaisons. 77 bits = 2⁷⁷ ≈ 151 quadrillions de combinaisons possibles.
+                </FaqItem>
+              </>) : (<>
+                <FaqItem q="Comment fonctionne le générateur aléatoire ?">
+                  Les caractères sont tirés aléatoirement depuis les jeux sélectionnés via{' '}
+                  <code className="font-mono text-xs bg-subtle dark:bg-subtle-dark px-1 rounded">crypto.getRandomValues()</code>.
+                  Chaque caractère est indépendant, garantissant une distribution uniforme.
+                </FaqItem>
+                <FaqItem q="Quelle longueur recommandée ?">
+                  16 caractères avec majuscules + minuscules + chiffres donnent ~95 bits d'entropie.
+                  20+ caractères avec symboles dépassent 130 bits — suffisant pour toute application critique.
+                </FaqItem>
+                <FaqItem q="Pourquoi activer les symboles ?">
+                  Les symboles augmentent la taille du charset (de 62 à 72 ici), ajoutant ~0,6 bit
+                  par caractère. Sur 20 caractères, c'est ~12 bits supplémentaires — un gain réel
+                  si le site les accepte.
+                </FaqItem>
+                <FaqItem q="Comment le temps de crack est-il estimé ?">
+                  On suppose 10¹² essais/seconde — un ordre de grandeur réaliste pour du cracking
+                  GPU avec hashcat. Le temps affiché est la moyenne (50 % des combinaisons testées).
+                </FaqItem>
+                <FaqItem q="Ce mot de passe est-il mémorisable ?">
+                  Non, et c'est prévu. Les mots de passe aléatoires sont conçus pour être stockés
+                  dans un gestionnaire de mots de passe (Bitwarden, KeePass…), pas mémorisés.
+                  Pour un mot de passe mémorisable, utilisez le mode Diceware.
+                </FaqItem>
+                <FaqItem q="Mes données sont-elles envoyées quelque part ?">
+                  Non. La génération est 100 % locale via l'API Web Crypto du navigateur.
+                  Rien ne transite par le serveur lors de l'utilisation de l'interface web.
+                </FaqItem>
+              </>)}
+            </div>
           </div>
 
-          {/* RIGHT: API + FAQ */}
+          {/* RIGHT: API */}
           <div className="space-y-5">
 
             {/* API Documentation */}
@@ -537,43 +695,44 @@ function App() {
                 </span>
               </h2>
 
-              <div className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark rounded-lg
-                px-4 py-3 font-mono text-sm flex items-center gap-3 mb-4">
-                <span className="bg-emerald-500 text-white text-[0.65rem] font-bold px-2 py-0.5 rounded">GET</span>
-                <span className="text-txt dark:text-txt-dark">/dicepass/api</span>
-              </div>
-
-              <div className="overflow-x-auto mb-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-brd dark:border-brd-dark">
-                      <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Paramètre</th>
-                      <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Défaut</th>
-                      <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-txt2 dark:text-txt2-dark">
-                    {[
-                      ['words', '6', 'Nombre de mots (3–12)'],
-                      ['sep', '-', 'Séparateur'],
-                      ['case', 'lower', 'lower / capitalize / upper'],
-                      ['digit', '0', 'Ajouter un chiffre (0|1)'],
-                      ['symbol', '0', 'Ajouter un symbole (0|1)'],
-                      ['count', '1', 'Nb de résultats (1–20)'],
-                    ].map(([p, d, desc]) => (
-                      <tr key={p} className="border-b border-brd/50 dark:border-brd-dark/50">
-                        <td className="py-2 px-3"><code className="font-mono text-txt dark:text-txt-dark text-xs">{p}</code></td>
-                        <td className="py-2 px-3"><code className="font-mono text-xs">{d}</code></td>
-                        <td className="py-2 px-3 text-xs">{desc}</td>
+              {/* Endpoint — Diceware */}
+              <div className="mb-6">
+                <div className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark rounded-lg
+                  px-4 py-3 font-mono text-sm flex items-center gap-3 mb-3">
+                  <span className="bg-emerald-500 text-white text-[0.65rem] font-bold px-2 py-0.5 rounded">GET</span>
+                  <span className="text-txt dark:text-txt-dark">/dicepass/api</span>
+                  <span className="ml-auto text-[0.65rem] text-txt2 dark:text-txt2-dark">Diceware</span>
+                </div>
+                <div className="overflow-x-auto mb-3">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-brd dark:border-brd-dark">
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Param</th>
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Défaut</th>
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Description</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <pre className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark
-                rounded-lg p-4 font-mono text-xs leading-relaxed overflow-x-auto
-                text-txt2 dark:text-txt2-dark">
+                    </thead>
+                    <tbody className="text-txt2 dark:text-txt2-dark">
+                      {[
+                        ['words', '6', 'Nombre de mots (3–12)'],
+                        ['sep', '-', 'Séparateur'],
+                        ['case', 'lower', 'lower / capitalize / upper'],
+                        ['digit', '0', 'Ajouter un chiffre (0|1)'],
+                        ['symbol', '0', 'Ajouter un symbole (0|1)'],
+                        ['count', '1', 'Nb de résultats (1–20)'],
+                      ].map(([p, d, desc]) => (
+                        <tr key={p} className="border-b border-brd/50 dark:border-brd-dark/50">
+                          <td className="py-2 px-3"><code className="font-mono text-txt dark:text-txt-dark text-xs">{p}</code></td>
+                          <td className="py-2 px-3"><code className="font-mono text-xs">{d}</code></td>
+                          <td className="py-2 px-3 text-xs">{desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <pre className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark
+                  rounded-lg p-4 font-mono text-xs leading-relaxed overflow-x-auto
+                  text-txt2 dark:text-txt2-dark">
 {`curl `}<span className="text-txt dark:text-txt-dark">{`${window.location.origin}/dicepass/api?words=6&case=capitalize`}</span>{`
 
 `}<span className="text-accent">{"{"}</span>{`
@@ -584,52 +743,74 @@ function App() {
 {`  `}<span className="text-accent">"crack_time"</span>{`: `}<span className="text-emerald-500">"3 milliards d'années"</span>{`,`}
 {`  `}<span className="text-accent">"wordlist_size"</span>{`: `}<span className="text-yellow-500">7776</span>{`
 `}<span className="text-accent">{"}"}</span></pre>
+              </div>
+
+              {/* Endpoint — Random */}
+              <div className="border-t border-brd dark:border-brd-dark pt-6">
+                <div className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark rounded-lg
+                  px-4 py-3 font-mono text-sm flex items-center gap-3 mb-3">
+                  <span className="bg-emerald-500 text-white text-[0.65rem] font-bold px-2 py-0.5 rounded">GET</span>
+                  <span className="text-txt dark:text-txt-dark">/dicepass/api/random</span>
+                  <span className="ml-auto text-[0.65rem] text-txt2 dark:text-txt2-dark">Aléatoire</span>
+                </div>
+                <div className="overflow-x-auto mb-3">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-brd dark:border-brd-dark">
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Param</th>
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Défaut</th>
+                        <th className="text-left font-mono text-[0.7rem] uppercase tracking-wide text-txt2 dark:text-txt2-dark py-2 px-3">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-txt2 dark:text-txt2-dark">
+                      {[
+                        ['length', '16', 'Longueur (8–64)'],
+                        ['upper', '1', 'Majuscules A-Z (0|1)'],
+                        ['lower', '1', 'Minuscules a-z (0|1)'],
+                        ['digits', '1', 'Chiffres 0-9 (0|1)'],
+                        ['symbols', '0', 'Symboles !@#… (0|1)'],
+                        ['count', '1', 'Nb de résultats (1–20)'],
+                      ].map(([p, d, desc]) => (
+                        <tr key={p} className="border-b border-brd/50 dark:border-brd-dark/50">
+                          <td className="py-2 px-3"><code className="font-mono text-txt dark:text-txt-dark text-xs">{p}</code></td>
+                          <td className="py-2 px-3"><code className="font-mono text-xs">{d}</code></td>
+                          <td className="py-2 px-3 text-xs">{desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <pre className="bg-base dark:bg-base-dark border border-brd dark:border-brd-dark
+                  rounded-lg p-4 font-mono text-xs leading-relaxed overflow-x-auto
+                  text-txt2 dark:text-txt2-dark">
+{`curl `}<span className="text-txt dark:text-txt-dark">{`${window.location.origin}/dicepass/api/random?length=20&symbols=1`}</span>{`
+
+`}<span className="text-accent">{"{"}</span>{`
+  `}<span className="text-accent">"passwords"</span>{`: [`}
+{`    `}<span className="text-emerald-500">"k7#Pz2mQxR!wVn4eL@Yt"</span>{`
+  ],`}
+{`  `}<span className="text-accent">"entropy_bits"</span>{`: `}<span className="text-yellow-500">131.1</span>{`,`}
+{`  `}<span className="text-accent">"crack_time"</span>{`: `}<span className="text-emerald-500">"milliards d'années"</span>{`,`}
+{`  `}<span className="text-accent">"charset_size"</span>{`: `}<span className="text-yellow-500">72</span>{`
+`}<span className="text-accent">{"}"}</span></pre>
+              </div>
             </div>
 
-            {/* FAQ */}
-            <div className="space-y-2">
-              <FaqItem q="Qu'est-ce que la méthode Diceware ?">
-                La méthode Diceware, inventée par Arnold Reinhold en 1995, consiste à créer un mot de passe en
-                assemblant des mots choisis aléatoirement dans une liste de 7776 mots (6⁵). Ici, l'aléa est
-                fourni par votre navigateur via <code className="font-mono text-xs bg-subtle dark:bg-subtle-dark px-1 rounded">crypto.getRandomValues()</code>,
-                un générateur cryptographiquement sécurisé. Aucune donnée ne quitte votre navigateur.
-              </FaqItem>
-              <FaqItem q="Combien de mots faut-il ?">
-                L'EFF et l'ANSSI recommandent au moins 5 mots pour un usage courant (~65 bits d'entropie).
-                6 mots (~77 bits) conviennent aux comptes sensibles. 7+ mots pour les applications critiques
-                comme un master password ou du chiffrement de disque.
-              </FaqItem>
-              <FaqItem q="Pourquoi c'est plus sûr qu'un mot de passe classique ?">
-                Un mot de passe classique de 8 caractères offre ~40-50 bits d'entropie et est difficile à retenir.
-                5 mots aléatoires parmi 7776 offrent ~65 bits tout en étant mémorisables, car les mots forment
-                une image mentale. La force vient du nombre astronomique de combinaisons possibles.
-              </FaqItem>
-              <FaqItem q="Comment le temps de crack est-il estimé ?">
-                On suppose un attaquant disposant de matériel capable de 10¹² (1 trillion) essais par seconde — un
-                ordre de grandeur réaliste pour du cracking GPU avec hashcat. Le temps affiché est le temps moyen
-                (50 % des combinaisons testées).
-              </FaqItem>
-              <FaqItem q="Mes données sont-elles envoyées quelque part ?">
-                Non. La génération est 100 % côté client via l'API Web Crypto du navigateur. La wordlist est
-                chargée une seule fois, puis tout se passe en local. L'API serveur (<code className="font-mono text-xs bg-subtle dark:bg-subtle-dark px-1 rounded">/dicepass/api</code>) est
-                disponible séparément pour les intégrations, mais l'interface web ne l'utilise pas.
-              </FaqItem>
-            </div>
-
-            {/* Footer */}
-            <footer className="text-center text-xs text-txt2 dark:text-txt2-dark space-y-1 pb-6">
-              <p>
-                Wordlist : <a href="https://github.com/chmduquesne/diceware-fr" target="_blank" rel="noopener"
-                  className="text-accent hover:underline">chmduquesne/diceware-fr</a> (CC-BY-3.0)
-              </p>
-              <p>
-                Génération via <code className="font-mono">crypto.getRandomValues()</code> —
-                API via <code className="font-mono">crypto.randomInt()</code>
-              </p>
-            </footer>
           </div>
 
         </div>
+
+        {/* Footer */}
+        <footer className="text-center text-xs text-txt2 dark:text-txt2-dark space-y-1 py-8">
+          <p>
+            Wordlist : <a href="https://github.com/chmduquesne/diceware-fr" target="_blank" rel="noopener"
+              className="text-accent hover:underline">chmduquesne/diceware-fr</a> (CC-BY-3.0)
+          </p>
+          <p>
+            Génération via <code className="font-mono">crypto.getRandomValues()</code> —
+            API via <code className="font-mono">crypto.randomInt()</code>
+          </p>
+        </footer>
       </div>
       <Toast show={toast} message="✓ Copié dans le presse-papier" />
     </div>
